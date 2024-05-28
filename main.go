@@ -75,30 +75,89 @@ func main() {
 
 }
 
-func getTodos(c *fiber.Ctx) error {
+func getTodos(c *fiber.Ctx) {
 	var todos []Todo
 
 	cursor, err := collection.Find(context.Background(), bson.M{})
-
 	if err != nil {
-		return err
+		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
+		return
 	}
-
 	defer cursor.Close(context.Background())
 
 	for cursor.Next(context.Background()) {
 		var todo Todo
 		if err := cursor.Decode(&todo); err != nil {
-			return err
+			c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
+			return
 		}
 		todos = append(todos, todo)
 	}
-	return c.JSON(todos)
+	c.JSON(todos)
 }
 
+func createTodo(c *fiber.Ctx) {
+	todo := new(Todo)
 
-func createTodo(c *fiber.Ctx) error{
- todo := new(Todo)
+	if err := c.BodyParser(todo); err != nil {
+		c.Status(400).JSON(fiber.Map{"error": "Bad Request"})
+		return
+	}
 
- if err !=
+	if todo.Body == "" {
+		c.Status(400).JSON(fiber.Map{"error": "TODO BODY CANNOT BE EMPTY"})
+		return
+	}
+
+	insertResult, err := collection.InsertOne(context.Background(), todo)
+	if err != nil {
+		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
+		return
+	}
+
+	todo.ID = insertResult.InsertedID.(primitive.ObjectID)
+
+	c.Status(201).JSON(todo)
+}
+
+func updateTodo(c *fiber.Ctx) {
+	id := c.Params("id")
+	objectID, err := primitive.ObjectIDFromHex(id)
+
+	if err != nil {
+		c.Status(404).JSON(fiber.Map{"error": "Invalid todo ID"})
+		return
+	}
+
+	filter := bson.M{"_id": objectID}
+	update := bson.M{"$set": bson.M{"completed": true}}
+
+	_, err = collection.UpdateOne(context.Background(), filter, update)
+
+	if err != nil {
+		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
+		return
+	}
+
+	c.Status(200).JSON(fiber.Map{"success": true})
+}
+
+func deleteTodo(c *fiber.Ctx) {
+	id := c.Params("id")
+
+	objectID, err := primitive.ObjectIDFromHex(id)
+
+	if err != nil {
+		c.Status(400).JSON(fiber.Map{"error": "Invalid todo ID"})
+		return
+	}
+
+	filter := bson.M{"_id": objectID}
+	_, err = collection.DeleteOne(context.Background(), filter)
+
+	if err != nil {
+		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
+		return
+	}
+	c.Status(200).JSON(fiber.Map{"success": true})
 }
