@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/gofiber/fiber"
+	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -72,92 +72,92 @@ func main() {
 	}
 
 	log.Fatal(app.Listen("0.0.0.0:" + port))
-
 }
 
-func getTodos(c *fiber.Ctx) {
+func getTodos(c *fiber.Ctx) error {
 	var todos []Todo
 
 	cursor, err := collection.Find(context.Background(), bson.M{})
 	if err != nil {
-		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
-		return
+		return c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
 	}
 	defer cursor.Close(context.Background())
 
 	for cursor.Next(context.Background()) {
 		var todo Todo
 		if err := cursor.Decode(&todo); err != nil {
-			c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
-			return
+			return c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
 		}
 		todos = append(todos, todo)
 	}
-	c.JSON(todos)
+	return c.JSON(todos)
 }
 
-func createTodo(c *fiber.Ctx) {
+func createTodo(c *fiber.Ctx) error {
 	todo := new(Todo)
 
 	if err := c.BodyParser(todo); err != nil {
-		c.Status(400).JSON(fiber.Map{"error": "Bad Request"})
-		return
+		return c.Status(400).JSON(fiber.Map{"error": "Bad Request"})
 	}
 
 	if todo.Body == "" {
-		c.Status(400).JSON(fiber.Map{"error": "TODO BODY CANNOT BE EMPTY"})
-		return
+		return c.Status(400).JSON(fiber.Map{"error": "TODO BODY CANNOT BE EMPTY"})
 	}
 
 	insertResult, err := collection.InsertOne(context.Background(), todo)
 	if err != nil {
-		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
-		return
+		return c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
 	}
 
 	todo.ID = insertResult.InsertedID.(primitive.ObjectID)
 
-	c.Status(201).JSON(todo)
+	return c.Status(201).JSON(todo)
 }
 
-func updateTodo(c *fiber.Ctx) {
+func updateTodo(c *fiber.Ctx) error {
 	id := c.Params("id")
 	objectID, err := primitive.ObjectIDFromHex(id)
-
 	if err != nil {
-		c.Status(404).JSON(fiber.Map{"error": "Invalid todo ID"})
-		return
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid todo ID"})
+	}
+
+	var updateData struct {
+		Completed bool   `json:"completed"`
+		Body      string `json:"body"`
+	}
+	if err := c.BodyParser(&updateData); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Bad Request"})
 	}
 
 	filter := bson.M{"_id": objectID}
-	update := bson.M{"$set": bson.M{"completed": true}}
-
-	_, err = collection.UpdateOne(context.Background(), filter, update)
-
-	if err != nil {
-		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
-		return
+	update := bson.M{
+		"$set": bson.M{
+			"completed": updateData.Completed,
+			"body":      updateData.Body,
+		},
 	}
 
-	c.Status(200).JSON(fiber.Map{"success": true})
+	_, err = collection.UpdateOne(context.Background(), filter, update)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
+	}
+
+	return c.Status(200).JSON(fiber.Map{"success": true})
 }
 
-func deleteTodo(c *fiber.Ctx) {
+func deleteTodo(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	objectID, err := primitive.ObjectIDFromHex(id)
-
 	if err != nil {
-		c.Status(400).JSON(fiber.Map{"error": "Invalid todo ID"})
-		return
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid todo ID"})
 	}
 
 	filter := bson.M{"_id": objectID}
 	_, err = collection.DeleteOne(context.Background(), filter)
-
 	if err != nil {
-		c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
-		return
+		return c.Status(500).JSON(fiber.Map{"error": "Internal Server Error"})
 	}
-	c.Status(200).JSON(fiber.Map{"success": true})
+
+	return c.Status(200).JSON(fiber.Map{"success": true})
 }
